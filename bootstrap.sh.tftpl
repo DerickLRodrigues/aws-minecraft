@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+umask 022
+systemctl disable --now sshd.service
+systemctl enable --now amazon-ssm-agent.service
+dnf -y install java-17-amazon-corretto-headless unzip
+id minecraft >/dev/null 2>&1 || useradd --system --home-dir /srv/minecraft --shell /sbin/nologin minecraft
+install -d -o minecraft -g minecraft -m 0750 /srv/minecraft
+echo '${install}' | base64 -d >/usr/local/bin/install-prominence
+chmod 0755 /usr/local/bin/install-prominence
+echo '${players}' | base64 -d >/etc/prominence-players.json
+chmod 0644 /etc/prominence-players.json
+echo '${service}' | base64 -d >/etc/systemd/system/minecraft.service
+systemctl daemon-reload
+runuser -u minecraft -- /usr/local/bin/install-prominence
+systemctl enable --now minecraft.service

@@ -1,0 +1,28 @@
+[Unit]
+Description=Minecraft Prominence II Hasturian Era
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=minecraft
+Group=minecraft
+WorkingDirectory=/srv/minecraft/server
+Environment=HOME=/srv/minecraft
+ExecStart=/usr/lib/jvm/java-17-amazon-corretto.x86_64/bin/java -Xms4G -Xmx9G -Dlog4j2.formatMsgNoLookups=true -jar fabric.jar nogui
+Restart=on-failure
+RestartSec=20
+KillSignal=SIGTERM
+TimeoutStopSec=240
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/minecraft
+ProtectHome=true
+PrivateTmp=true
+IPAddressDeny=169.254.169.254/32
+
+[Install]
+WantedBy=multi-user.target

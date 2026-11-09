@@ -1,0 +1,7 @@
+# Substitua os exemplos pelos dados dos jogadores.
+player_cidrs = ["203.0.113.10/32"]
+players = [
+  { name = "SeuNick", uuid = "00000000-0000-0000-0000-000000000000" }
+]
+disk_gib = 40
+accept_minecraft_eula = false
