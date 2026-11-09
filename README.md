@@ -62,22 +62,32 @@ O instalador fixa os dois endereços HTTPS e hashes. Se qualquer arquivo mudar, 
 
 Para encerrar uma sessão de jogo, avise os jogadores. Dentro do SSM, execute `sudo systemctl stop minecraft`. Confira em `sudo journalctl -u minecraft -n 60` que o mundo foi salvo e a JVM encerrou. Execute `sudo systemctl poweroff`. A EC2 está configurada para entrar em estado **stopped**. Parar apenas o serviço do jogo mantém a cobrança de computação.
 
-Para ligar de novo pelo PowerShell:
+### Ligar com a Lambda
+
+Com o estado do Terraform desta implantação e uma sessão AWS autorizada, abra o PowerShell na pasta do projeto e execute:
 
 ```powershell
-$id = terraform output -raw instance_id
-aws ec2 start-instances --region sa-east-1 --instance-ids $id
-aws ec2 wait instance-running --region sa-east-1 --instance-ids $id
-aws ec2 describe-instances --region sa-east-1 --instance-ids $id --query "Reservations[0].Instances[0].PublicIpAddress" --output text
+.\automacao\servidor.ps1 start
+.\automacao\servidor.ps1 status
 ```
 
-O IPv4 pode mudar a cada partida. Divulgue o endereço retornado pela AWS e acrescente `:25565`. O output do Terraform reflete a última atualização do estado. Aguarde o **Done** novamente.
+A primeira chamada solicita a partida. Repita status até obter running e o endereço IPv4, que pode mudar entre sessões. Use esse endereço com a porta 25565 e aguarde **Done** no log do jogo. Quem opera pelo console AWS pode invocar a função identificada por `terraform output -raw control_function` com o evento `{"action":"start"}`. Uma tentativa de conexão pelo cliente Minecraft, sozinha, não liga uma EC2 parada.
+
+### Desligamento após 30 minutos sem jogadores
+
+A regra EventBridge chama a Lambda a cada cinco minutos. Com a EC2 em execução, a função solicita via SSM uma consulta local à porta do jogo. O monitor acompanha o total de jogadores, os registros de entrada e saída e o processo atual do Minecraft. A primeira leitura válida inicia a janela. Uma falha, um intervalo superior a sete minutos entre leituras ou um reinício do jogo exige nova janela. O tempo mínimo é configurável em `idle_minutes` (padrão 30). A parada ocorre na primeira sondagem elegível, tipicamente entre 30 e 35 minutos. Se ninguém conseguir entrar porque o jogo ou o SSM falhou ao iniciar, a EC2 permanece ligada e pode gerar custos.
+
+Antes de desligar, o monitor confirma novamente a contagem zero, manda o systemd encerrar o Minecraft, verifica o resultado, sincroniza o disco e solicita poweroff. O mundo fica no EBS. A ação manual `.\automacao\servidor.ps1 stop` solicita a parada imediata do jogo mesmo com jogadores presentes. Se o serviço já estiver inativo, o controle preserva a EC2 para diagnóstico. Use o procedimento SSM acima nesse caso.
+
+A função aceita invocações autenticadas por IAM. Conceda lambda:InvokeFunction no ARN específico apenas aos operadores autorizados a ligar **e** desligar. A Lambda só pode iniciar a EC2 do projeto e enviar seu documento SSM dedicado a essa instância. O primeiro apply da infraestrutura continua sujeito a autorização. Para atualizar uma implantação existente, use a pasta com o mesmo estado, execute init e plan e confira que a EC2 e o volume estão preservados. O plano inclui Lambda, regra e destino EventBridge, documento SSM, log e permissões IAM. Ao editar controle.py, execute `python automacao/empacotar.py` antes do plano.
+
+Para verificar na AWS após a implantação, ligue a EC2, entre no jogo e confira que ela continua ligada com um jogador. Ao sair, acompanhe os resultados no histórico do Systems Manager Run Command até a EC2 parar. O log da Lambda registra o ID do comando enviado, e o resultado da consulta local aparece na saída do comando SSM. Com a EC2 parada, as sondagens apenas consultam o estado. As chamadas Lambda, os registros e o agendamento podem gerar cobranças adicionais conforme uso e franquias da conta.
 
 Para trocar o IP de um jogador, edite player_cidrs e revise um novo plano. A lista players alimenta somente a instalação inicial. Para alterar membros em um mundo existente, pare o serviço via SSM, edite `/srv/minecraft/server/whitelist.json` e reinicie-o. Mudanças nos parâmetros do bootstrap pedem substituição da EC2 e são bloqueadas por prevent_destroy. Para ajustar o heap, revise a unidade na VM, use `sudo systemctl daemon-reload` e reinicie o serviço em janela de manutenção.
 
-## Backups e automações futuras
+## Backups
 
-As tags Schedule=on-demand da EC2 e Backup=prominence do volume, os outputs instance_id/root_volume_id e a unidade minecraft.service servem de entrada para automação. **Nesta versão, partida, parada e snapshots são manuais.** Para desligamento por inatividade, uma futura rotina deve confirmar zero jogadores por várias consultas consecutivas, respeitar um período de graça no boot e manter a instância ligada quando a consulta falhar. Use uma role própria para um futuro agendador de partida. A VM pode desligar a si mesma pelo sistema operacional.
+A tag Backup=prominence e o output root_volume_id identificam o volume para snapshots. Os backups continuam manuais.
 
 Para o primeiro backup consistente, desligue o servidor conforme acima e aguarde o estado stopped. Do PowerShell local:
 
